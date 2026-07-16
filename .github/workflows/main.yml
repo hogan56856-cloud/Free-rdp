@@ -1,40 +1,44 @@
-name: RDP-Germany
+name: RDP-Germany-Fixed
 
 on:
   workflow_dispatch:
 
 jobs:
   secure-rdp:
-    runs-on: ubuntu-latest # تحويل السيرفر إلى لينكس لضمان قيامه في مراكز بيانات أوروبا (المانيا/أيرلندا) وللحصول على سرعة تحميل تتخطى 2 جيجا!
+    runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
       - name: Update Package List & Install Desktop Environment
         run: |
           sudo apt-get update
-          # تثبيت واجهة رسومية خفيفة جداً وسريعة (XFCE) مع خادم الـ RDP (XRDP)
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp
-          
-      - name: Configure XRDP Session
+          # تثبيت الواجهة الرسومية وخادم الـ RDP وحزم التشغيل الأساسية
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp dbus-x11
+
+      - name: Configure Global XRDP Settings
         run: |
-          echo xfce4-session > ~/.xsession
           sudo systemctl enable xrdp
+          # إعداد نظام الألوان والـ Polkit لمنع رسائل طلب الباسورد الداخلية
+          sudo sed -i 's/allowed_users=console/allowed_users=anybody/g' /etc/xrdp/Xwrapper.config
           sudo systemctl restart xrdp
 
       - name: Configure Core Firewall Settings
         run: |
-          # فتح بورت الـ RDP في جدار الحماية للينكس
           sudo ufw allow 3389/tcp
-          
-      - name: Create RDP User with Secure Password
+
+      - name: Create RDP User and Fix XFCE Session
         id: create_user
         run: |
-          # توليد كلمة مرور عشوائية قوية وآمنة
           PASSWORD=$(openssl rand -base64 12 | tr -d '/+=')
-          # إنشاء مستخدم باسم RDP وإضافته لمجموعة الصلاحيات الكاملة (sudo)
           sudo useradd -m -s /bin/bash RDP
           echo "RDP:$PASSWORD" | sudo chpasswd
           sudo usermod -aG sudo RDP
+          
+          # الحــــــــل السحري: كتابة ملف الجلسة مباشرة داخل فولدر المستخدم RDP وتمليكه له
+          echo "xfce4-session" | sudo tee /home/RDP/.xsession
+          echo "startxfce4" | sudo tee /home/RDP/.Xclients
+          sudo chown -R RDP:RDP /home/RDP/
+          
           echo "RDP_CREDS=User: RDP | Password: $PASSWORD" >> $GITHUB_ENV
           echo "User: RDP | Password: $PASSWORD"
 
@@ -69,17 +73,10 @@ jobs:
           echo "Current Server IP: $IP"
           echo "Current Country: $COUNTRY"
           echo "Current Region/City: $REGION - $CITY"
-          
-          if [ "$COUNTRY" != "DE" ] && [ "$COUNTRY" != "NL" ] && [ "$COUNTRY" != "IE" ]; then
-              echo "::warning:: The server is not in Germany/Europe! It is in $COUNTRY."
-          else
-              echo "Success: Server is successfully running from Europe! 🇪🇺 (Country: $COUNTRY)"
-          fi
 
       - name: Verify RDP Accessibility
         run: |
           echo "Tailscale IP: $TAILSCALE_IP"
-          # التأكد من أن بورت الـ RDP شغال ومفتوح للاتصال
           nc -z -v -w5 $TAILSCALE_IP 3389
 
       - name: Maintain Connection
