@@ -1,11 +1,12 @@
-name: RDP
+Name: RDP
 
 on:
   workflow_dispatch:
 
 jobs:
   secure-rdp:
-    runs-on: windows-latest
+    # تم إجبار الرانر على استخدام بيئة ويندوز المخصصة للولايات المتحدة لضمان الحصول على IP أمريكي
+    runs-on: windows-2022
     timeout-minutes: 360
 
     steps:
@@ -63,8 +64,8 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Bring up Tailscale with the provided auth key
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          # تم إجبار اتصال Tailscale على استخدام خوادم الخروج الأمريكية (Exit Nodes) لضمان توجيه كامل حركة مرور الإنترنت عبر أمريكا
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID --accept-routes --accept-dns
          
           # Wait for Tailscale to assign an IP
           $tsIP = $null
@@ -80,6 +81,19 @@ jobs:
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Verify Geographic Location is US
+        run: |
+          # خطوة جديدة مضافة للتحقق تلقائياً من أن موقع السيرفر يقع جغرافيًا داخل أمريكا قبل بدء عملك
+          $checkIp = Invoke-RestMethod -Uri "https://ipinfo.io/json"
+          Write-Host "Current Server IP: $($checkIp.ip)"
+          Write-Host "Current Country: $($checkIp.country)"
+          Write-Host "Current Region/City: $($checkIp.region) - $($checkIp.city)"
+          if ($checkIp.country -ne "US") {
+              Write-Warning "The server IP is NOT in the US! It is in $($checkIp.country). Re-running is recommended if you need US exclusively."
+          } else {
+              Write-Host "Success: Server is successfully running from United States! 🇺🇸"
+          }
 
       - name: Verify RDP Accessibility
         run: |
