@@ -1,103 +1,94 @@
-name: RDP
+name: RDP-Germany
 
 on:
   workflow_dispatch:
 
 jobs:
   secure-rdp:
-    runs-on: windows-2022
+    runs-on: ubuntu-latest # تحويل السيرفر إلى لينكس لضمان قيامه في مراكز بيانات أوروبا (المانيا/أيرلندا) وللحصول على سرعة تحميل تتخطى 2 جيجا!
     timeout-minutes: 360
 
     steps:
-      - name: Configure Core RDP Settings
+      - name: Update Package List & Install Desktop Environment
         run: |
-          $Path = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
-          $Winstation = "$Path\WinStations\RDP-Tcp"
-          Set-ItemProperty -Path $Path -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path $Winstation -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path $Winstation -Name "SecurityLayer" -Value 0 -Force
-          netsh advfirewall firewall delete rule name="RDP-Tailscale" ErrorAction SilentlyContinue
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
+          sudo apt-get update
+          # تثبيت واجهة رسومية خفيفة جداً وسريعة (XFCE) مع خادم الـ RDP (XRDP)
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp
+          
+      - name: Configure XRDP Session
+        run: |
+          echo xfce4-session > ~/.xsession
+          sudo systemctl enable xrdp
+          sudo systemctl restart xrdp
 
-      - name: Create RDP User with Secure Password
+      - name: Configure Core Firewall Settings
         run: |
-          Add-Type -AssemblyName System.Security
-          $charSet = @{
-              Upper   = [char[]](65..90)
-              Lower   = [char[]](97..122)
-              Number  = [char[]](48..57)
-              Special = ([char[]](33..47) + [char[]](58..64) + [char[]](91..96) + [char[]](123..126))
-          }
-          $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
-          if (-not (Get-LocalUser -Name "RDP")) {
-              Write-Error "User creation failed"
-              exit 1
-          }
+          # فتح بورت الـ RDP في جدار الحماية للينكس
+          sudo ufw allow 3389/tcp
+          
+      - name: Create RDP User with Secure Password
+        id: create_user
+        run: |
+          # توليد كلمة مرور عشوائية قوية وآمنة
+          PASSWORD=$(openssl rand -base64 12 | tr -d '/+=')
+          # إنشاء مستخدم باسم RDP وإضافته لمجموعة الصلاحيات الكاملة (sudo)
+          sudo useradd -m -s /bin/bash RDP
+          echo "RDP:$PASSWORD" | sudo chpasswd
+          sudo usermod -aG sudo RDP
+          echo "RDP_CREDS=User: RDP | Password: $PASSWORD" >> $GITHUB_ENV
+          echo "User: RDP | Password: $PASSWORD"
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+          curl -fsSL https://tailscale.com/install.sh | sh
 
       - name: Establish Tailscale Connection
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID --accept-routes --accept-dns
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 20) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
-          }
-          if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$GITHUB_RUN_ID --accept-routes --accept-dns
+          TS_IP=""
+          retries=0
+          while [ -z "$TS_IP" ] && [ $retries -lt 20 ]; do
+              TS_IP=$(tailscale ip -4)
+              sleep 5
+              retries=$((retries+1))
+          done
+          if [ -z "$TS_IP" ]; then
+              echo "Tailscale IP not assigned. Exiting."
               exit 1
-          }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          fi
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
 
-      - name: Verify Geographic Location is US
+      - name: Verify Geographic Location is Germany/Europe
         run: |
-          $checkIp = Invoke-RestMethod -Uri "https://ipinfo.io/json"
-          Write-Host "Current Server IP: $($checkIp.ip)"
-          Write-Host "Current Country: $($checkIp.country)"
-          Write-Host "Current Region/City: $($checkIp.region) - $($checkIp.city)"
-          if ($checkIp.country -ne "US") {
-              Write-Warning "The server IP is NOT in the US! It is in $($checkIp.country)."
-          } else {
-              Write-Host "Success: Server is successfully running from United States! 🇺🇸"
-          }
+          LOCATION_INFO=$(curl -s "https://ipinfo.io/json")
+          IP=$(echo "$LOCATION_INFO" | grep -oP '"ip": "\K[^"]+')
+          COUNTRY=$(echo "$LOCATION_INFO" | grep -oP '"country": "\K[^"]+')
+          REGION=$(echo "$LOCATION_INFO" | grep -oP '"region": "\K[^"]+')
+          CITY=$(echo "$LOCATION_INFO" | grep -oP '"city": "\K[^"]+')
+          
+          echo "Current Server IP: $IP"
+          echo "Current Country: $COUNTRY"
+          echo "Current Region/City: $REGION - $CITY"
+          
+          if [ "$COUNTRY" != "DE" ] && [ "$COUNTRY" != "NL" ] && [ "$COUNTRY" != "IE" ]; then
+              echo "::warning:: The server is not in Germany/Europe! It is in $COUNTRY."
+          else
+              echo "Success: Server is successfully running from Europe! 🇪🇺 (Country: $COUNTRY)"
+          fi
 
       - name: Verify RDP Accessibility
         run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
+          echo "Tailscale IP: $TAILSCALE_IP"
+          # التأكد من أن بورت الـ RDP شغال ومفتوح للاتصال
+          nc -z -v -w5 $TAILSCALE_IP 3389
 
       - name: Maintain Connection
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "$env:RDP_CREDS"
-          Write-Host "==================`n"
-          while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
-              Start-Sleep -Seconds 300
-          }
+          echo -e "\n=== RDP ACCESS ==="
+          echo "Address: $TAILSCALE_IP"
+          echo "$RDP_CREDS"
+          echo -e "==================\n"
+          while true; do
+              echo "[$(date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              sleep 300
+          done
