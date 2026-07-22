@@ -84,7 +84,7 @@ jobs:
           if ($checkIp.country -ne "US") {
               Write-Warning "The server IP is NOT in the US! It is in $($checkIp.country)."
           } else {
-              Write-Host "Success: Server is successfully running from United States! 🇺🇸"
+              Write-Host "Success: Server is successfully running from United States!"
           }
 
       - name: Verify RDP Accessibility
@@ -98,18 +98,18 @@ jobs:
           }
           Write-Host "TCP connectivity successful!"
 
-      - name: 🔑 Print Credentials (CLICK HERE)
+      - name: Print Credentials (CLICK HERE)
         shell: powershell
         run: |
           Write-Output "=========================================="
-          Write-Output "✅ WINDOWS RDP SERVER IS READY!"
-          Write-Output "🌐 Address : $env:TAILSCALE_IP"
-          Write-Output "👤 Username: RDP"
-          Write-Output "🔑 Password: $env:RDP_PASS"
+          Write-Output "SUCCESS: WINDOWS RDP SERVER IS READY!"
+          Write-Output "Address : $env:TAILSCALE_IP"
+          Write-Output "Username: RDP"
+          Write-Output "Password: $env:RDP_PASS"
           Write-Output "=========================================="
           Write-Output "Use RD Client app to connect."
 
-      - name: ⏳ Maintain Connection (DO NOT CLICK)
+      - name: Maintain Connection (DO NOT CLICK)
         shell: powershell
         run: |
           while ($true) {
