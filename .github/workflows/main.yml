@@ -10,6 +10,7 @@ jobs:
 
     steps:
       - name: Configure Core RDP Settings
+        shell: powershell
         run: |
           $Path = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
           $Winstation = "$Path\WinStations\RDP-Tcp"
@@ -21,6 +22,7 @@ jobs:
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Secure Password
+        shell: powershell
         run: |
           Add-Type -AssemblyName System.Security
           $charSet = @{
@@ -34,6 +36,86 @@ jobs:
           $rawPassword += $charSet.Lower | Get-Random -Count 4
           $rawPassword += $charSet.Number | Get-Random -Count 4
           $rawPassword += $charSet.Special | Get-Random -Count 4
+          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
+          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+          if (-not (Get-LocalUser -Name "RDP")) {
+              Write-Error "User creation failed"
+              exit 1
+          }
+
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+
+      - name: Establish Tailscale Connection
+        shell: powershell
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID --accept-routes --accept-dns
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 20) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              Start-Sleep -Seconds 5
+              $retries++
+          }
+          if (-not $tsIP) {
+              Write-Error "Tailscale IP not assigned. Exiting."
+              exit 1
+          }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Verify Geographic Location is US
+        shell: powershell
+        run: |
+          $checkIp = Invoke-RestMethod -Uri "https://ipinfo.io/json"
+          Write-Host "Current Server IP: $($checkIp.ip)"
+          Write-Host "Current Country: $($checkIp.country)"
+          Write-Host "Current Region/City: $($checkIp.region) - $($checkIp.city)"
+          if ($checkIp.country -ne "US") {
+              Write-Warning "The server IP is NOT in the US! It is in $($checkIp.country)."
+          } else {
+              Write-Host "Success: Server is successfully running from United States! 🇺🇸"
+          }
+
+      - name: Verify RDP Accessibility
+        shell: powershell
+        run: |
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          if (-not $TestResult.TcpTestSucceeded) {
+              Write-Error "TCP connection to RDP port 3389 failed"
+              exit 1
+          }
+          Write-Host "TCP connectivity successful!"
+
+      - name: 🔑 Print Credentials (CLICK HERE)
+        shell: powershell
+        run: |
+          Write-Output "=========================================="
+          Write-Output "✅ WINDOWS RDP SERVER IS READY!"
+          Write-Output "🌐 Address : $env:TAILSCALE_IP"
+          Write-Output "👤 Username: RDP"
+          Write-Output "🔑 Password: $env:RDP_PASS"
+          Write-Output "=========================================="
+          Write-Output "انسخ البيانات دي واستخدمها في تطبيق RD Client"
+
+      - name: Maintain Connection
+        shell: powershell
+        run: |
+          while ($true) {
+              Write-Host "[$(Get-Date)] RDP Active - Server is running smoothly..."
+              Start-Sleep -Seconds 300
+          }
           $password = -join ($rawPassword | Sort-Object { Get-Random })
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
