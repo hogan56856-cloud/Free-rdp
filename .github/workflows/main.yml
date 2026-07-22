@@ -9,18 +9,15 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Create Mac User with Secure Password
+      - name: Set VNC Password
         run: |
-          # توليد باسورد عشوائية
           PASSWORD=$(openssl rand -base64 6 | cut -c1-8)
-          sudo sysadminctl -addUser macuser -fullName "Mac VNC User" -password "$PASSWORD" -admin
-          
-          # حفظ الباسورد في متغيرات البيئة عشان الخطوات الجاية
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Enable Screen Sharing (VNC)
         run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users macuser -privs -all -restart -agent
+          # تفعيل الـ VNC على المستخدم الحالي الجاهز (runner) بدل مستخدم جديد
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users "$USER" -privs -all -restart -agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$MAC_PASSWORD" -restart -agent
 
       - name: Install Tailscale
@@ -44,14 +41,14 @@ jobs:
           echo "=========================================="
           echo "✅ SERVER IS READY!"
           echo "🌐 Address: $TAILSCALE_IP:5900"
-          echo "👤 Username: macuser"
+          echo "👤 Username: runner"
           echo "🔑 Password: $MAC_PASSWORD"
           echo "=========================================="
           echo "انسخ العنوان والباسورد واستخدمهم في تطبيق VNC Viewer"
 
       - name: ⏳ Server is Running (DO NOT CLICK)
         run: |
-          echo "السيرفر شغال دلوقتي... مش محتاج تفتح الخطوة دي."
+          echo "السيرفر شغال دلوقتي..."
           while true; do
               sleep 300
           done
