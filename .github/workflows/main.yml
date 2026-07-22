@@ -1,39 +1,44 @@
-name: macOS VNC
+name: Windows RDP
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-mac-vnc:
-    runs-on: macos-13
+  windows-rdp:
+    runs-on: windows-latest
     timeout-minutes: 360
 
     steps:
-      - name: Set VNC Password
-        run: |
-          PASSWORD=$(openssl rand -base64 6 | cut -c1-8)
-          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+      - name: Set up Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          hostname: gh-win-${{ github.run_id }}
 
-      - name: Enable Screen Sharing (VNC)
+      - name: Set Password and Enable RDP
+        shell: powershell
         run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users "$USER" -privs -all -restart -agent
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$MAC_PASSWORD" -restart -agent
+          $Password = "Windows@2026"
+          net user runneradmin $Password
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-      - name: Install Tailscale
+      - name: 🔑 Print Credentials (CLICK HERE)
+        shell: powershell
         run: |
-          brew install tailscale
-          sudo tailscaled > /dev/null 2>&1 &
-          sleep 5
+          $TS_IP = (tailscale ip -4).Trim()
+          Write-Output "=========================================="
+          Write-Output "✅ SERVER IS READY!"
+          Write-Output "🌐 Address: $TS_IP"
+          Write-Output "👤 Username: runneradmin"
+          Write-Output "🔑 Password: Windows@2026"
+          Write-Output "=========================================="
 
-      - name: Establish Tailscale Connection
+      - name: ⏳ Server is Running (DO NOT CLICK)
+        shell: powershell
         run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-${GITHUB_RUN_ID} --accept-routes --accept-dns
-          TS_IP=$(tailscale ip -4)
-          if [ -z "$TS_IP" ]; then
-              echo "Tailscale IP not assigned. Exiting."
-              exit 1
-          fi
-          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+          Write-Output "السيرفر شغال دلوقتي..."
+          while ($true) { Start-Sleep -Seconds 300 }
 
       - name: 🔑 Print Credentials (CLICK HERE)
         run: |
