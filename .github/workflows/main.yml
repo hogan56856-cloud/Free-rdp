@@ -6,7 +6,7 @@ on:
 jobs:
   windows-rdp:
     runs-on: windows-latest
-    timeout-minutes: 43200
+    timeout-minutes: 360
 
     steps:
       - name: Install and Setup Tailscale
