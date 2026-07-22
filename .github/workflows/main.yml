@@ -11,37 +11,27 @@ jobs:
     steps:
       - name: Create Mac User with Secure Password
         run: |
-          # توليد باسورد عشوائية من 8 حروف (الحد الأقصى لبروتوكول VNC القديم)
+          # توليد باسورد عشوائية
           PASSWORD=$(openssl rand -base64 6 | cut -c1-8)
-          
-          # إنشاء مستخدم جديد بصلاحيات الأدمن
           sudo sysadminctl -addUser macuser -fullName "Mac VNC User" -password "$PASSWORD" -admin
           
-          # حفظ البيانات كمتغيرات بيئة
-          echo "VNC_CREDS=User: macuser | Password: $PASSWORD" >> $GITHUB_ENV
+          # حفظ الباسورد في متغيرات البيئة عشان الخطوات الجاية
+          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Enable Screen Sharing (VNC)
         run: |
-          # تفعيل التحكم عن بُعد للمستخدم الجديد
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users macuser -privs -all -restart -agent
-          
-          # تفعيل التوافق مع برامج VNC العادية (VNC Legacy)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$PASSWORD" -restart -agent
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$MAC_PASSWORD" -restart -agent
 
       - name: Install Tailscale
         run: |
-          # استخدام Homebrew لتسطيب Tailscale
           brew install tailscale
-          
-          # تشغيل خدمة Tailscale في الخلفية
           sudo tailscaled > /dev/null 2>&1 &
           sleep 5
 
       - name: Establish Tailscale Connection
         run: |
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-${GITHUB_RUN_ID} --accept-routes --accept-dns
-          
-          # استخراج الـ IP
           TS_IP=$(tailscale ip -4)
           if [ -z "$TS_IP" ]; then
               echo "Tailscale IP not assigned. Exiting."
@@ -49,20 +39,19 @@ jobs:
           fi
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
 
-      - name: Verify Geographic Location
+      - name: 🔑 Print Credentials (CLICK HERE)
         run: |
-          curl -s https://ipinfo.io/json
-          echo "Check the JSON output above for location details."
+          echo "=========================================="
+          echo "✅ SERVER IS READY!"
+          echo "🌐 Address: $TAILSCALE_IP:5900"
+          echo "👤 Username: macuser"
+          echo "🔑 Password: $MAC_PASSWORD"
+          echo "=========================================="
+          echo "انسخ العنوان والباسورد واستخدمهم في تطبيق VNC Viewer"
 
-      - name: Maintain Connection
+      - name: ⏳ Server is Running (DO NOT CLICK)
         run: |
-          echo -e "\n=== MAC VNC ACCESS ==="
-          echo "Address: $TAILSCALE_IP:5900"
-          echo "Credentials: $VNC_CREDS"
-          echo "Use a VNC Viewer (like RealVNC or built-in Mac Screen Sharing) to connect."
-          echo -e "======================\n"
-          
+          echo "السيرفر شغال دلوقتي... مش محتاج تفتح الخطوة دي."
           while true; do
-              echo "[$(date)] VNC Active - Use Ctrl+C in workflow to terminate"
               sleep 300
           done
