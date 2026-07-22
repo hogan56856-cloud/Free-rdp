@@ -6,14 +6,21 @@ on:
 jobs:
   windows-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360
+    timeout-minutes: 43200
 
     steps:
-      - name: Set up Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
-          hostname: gh-win-${{ github.run_id }}
+      - name: Install and Setup Tailscale
+        shell: powershell
+        run: |
+          Write-Host "Downloading Tailscale..."
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+          Write-Host "Installing Tailscale..."
+          Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
+          Start-Sleep -Seconds 10
+          Write-Host "Connecting to Tailscale..."
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-win-${{ github.run_id }} --unattended
+          $TS_IP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          echo "TAILSCALE_IP=$TS_IP" >> $env:GITHUB_ENV
 
       - name: Set Password and Enable RDP
         shell: powershell
@@ -26,33 +33,16 @@ jobs:
       - name: 🔑 Print Credentials (CLICK HERE)
         shell: powershell
         run: |
-          $TS_IP = (tailscale ip -4).Trim()
           Write-Output "=========================================="
           Write-Output "✅ SERVER IS READY!"
-          Write-Output "🌐 Address: $TS_IP"
+          Write-Output "🌐 Address: ${{ env.TAILSCALE_IP }}"
           Write-Output "👤 Username: runneradmin"
           Write-Output "🔑 Password: Windows@2026"
           Write-Output "=========================================="
+          Write-Output "استخدم تطبيق RD Client للاتصال"
 
       - name: ⏳ Server is Running (DO NOT CLICK)
         shell: powershell
         run: |
           Write-Output "السيرفر شغال دلوقتي..."
           while ($true) { Start-Sleep -Seconds 300 }
-
-      - name: 🔑 Print Credentials (CLICK HERE)
-        run: |
-          echo "=========================================="
-          echo "✅ SERVER IS READY!"
-          echo "🌐 Address: $TAILSCALE_IP:5900"
-          echo "👤 Username: runner"
-          echo "🔑 Password: $MAC_PASSWORD"
-          echo "=========================================="
-          echo "انسخ العنوان والباسورد واستخدمهم في تطبيق VNC Viewer"
-
-      - name: ⏳ Server is Running (DO NOT CLICK)
-        run: |
-          echo "السيرفر شغال دلوقتي..."
-          while true; do
-              sleep 300
-          done
